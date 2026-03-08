@@ -1,12 +1,14 @@
 
 const fs = require('fs');
 const path = require('path');
+dotenv = require('dotenv');
+dotenv.config();
 
 // Config via env or CLI args
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-const DB_NAME = process.env.DB_NAME || 'sample_mflix';
-const COLLECTION_NAME = process.env.COLLECTION || 'movies';
-const BATCH_SIZE = Number(process.env.BATCH_SIZE) || 500;
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.MONGODB_NAME;
+const COLLECTION_NAME = process.env.MONGODB_COLLECTION_MOVIE;
+const BATCH_SIZE = Number(process.env.MONGODB_BATCH_SIZE);
 
 function parseArgs() {
 	const args = { drop: false, dryRun: false, limit: null };
