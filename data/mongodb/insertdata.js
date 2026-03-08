@@ -1,14 +1,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const LLMClient = require('../../src/utils/LLMClient');
+const DBClient = require('../../src/utils/DBClient');
 dotenv = require('dotenv');
 dotenv.config();
-
-// Config via env or CLI args
-const MONGODB_URI = process.env.MONGODB_URI;
-const DB_NAME = process.env.MONGODB_NAME;
 const COLLECTION_NAME = process.env.MONGODB_COLLECTION_MOVIE;
 const BATCH_SIZE = Number(process.env.MONGODB_BATCH_SIZE);
+LLMClient.init()
 
 function parseArgs() {
 	const args = { drop: false, dryRun: false, limit: null };
@@ -57,32 +56,40 @@ async function run() {
 		return;
 	}
 
-	// lazy require so dry-run doesn't need the package installed
-	let MongoClient;
 	try {
-		MongoClient = require('mongodb').MongoClient;
-	} catch (err) {
-		console.error('Missing dependency "mongodb". Install with: npm install mongodb');
-		process.exit(1);
-	}
-
-	const client = new MongoClient(MONGODB_URI);
-	try {
-		await client.connect();
-		const db = client.db(DB_NAME);
+        const db = await DBClient.init();
 		const col = db.collection(COLLECTION_NAME);
 
 		if (drop) {
-			console.log(`Dropping existing collection ${DB_NAME}.${COLLECTION_NAME} (if exists)`);
+			console.log(`Dropping existing collection ${COLLECTION_NAME} (if exists)`);
 			try { await col.drop(); } catch (e) { /* ignore if doesn't exist */ }
 		}
 
 		// insert in batches
 		let inserted = 0;
+        let moviecount = 0
 		for (let i = 0; i < count; i += BATCH_SIZE) {
 			const chunk = docs.slice(i, Math.min(i + BATCH_SIZE, count));
 			if (chunk.length === 0) break;
-			const res = await col.insertMany(chunk, { ordered: false });
+            console.log(`Processing chunk: ${i} - ${i + BATCH_SIZE}`);
+            let filteredData = [];
+            for (const doc of chunk) {
+                // clean up document before inserting
+                console.log("=============================================");
+                console.log(`Processing document number: ${++moviecount}`);
+                console.log(`Cleaning up document: ${doc.title}`);
+                delete doc._id;
+                delete doc.num_mflix_comments;
+                delete doc.plot_embedding;
+                console.log(`Generating embedding for document: ${doc.title}`);
+                doc.plotembedding = await LLMClient.generateVector(doc.fullplot ? doc.fullplot : doc.plot);
+                console.log(`Generated embedding for document: ${doc.title}`);
+                filteredData.push(doc);
+                console.log(`Processed document(yet to be inserted): ${doc.title}`);
+                console.log("=============================================");
+            }
+            console.log(`Inserting documents ${i} - ${i + filteredData.length} ...`);
+			const res = await col.insertMany(filteredData, { ordered: false });
 			inserted += res.insertedCount || 0;
 			console.log(`Inserted ${inserted}/${count} documents`);
 		}

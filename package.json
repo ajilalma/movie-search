@@ -4,6 +4,7 @@
   "description": "A RAG engine to talk about movies",
   "main": "index.js",
   "scripts": {
+    "initdb": "node ./data/mongodb/insertdata.js --drop",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
