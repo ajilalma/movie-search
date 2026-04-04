@@ -32,7 +32,7 @@ class LLMClient {
   }
 
   static async generateText(prompt: string): Promise<string> {
-    logger.info(`Generating text for prompt that ends with: ${prompt ? prompt.slice(-30) : ''}`);
+    logger.info(`Generating text for prompt(Size: ${prompt ? prompt.length : 0}) that ends with: ${prompt ? prompt.slice(-100) : ''}`);
     const resp = await got.post(`${LLMClient.ollamaUrl}/api/generate`, {
       json: {
         model: LLMClient.ollamaGenerationModel,

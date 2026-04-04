@@ -8,16 +8,14 @@ class ChatService {
   private systemContext: string;
   private contextWindow: number;
   private chatSoFar: string = '';
-  private movieService: MovieService;
   private dbQueryOrchestrator: LLMToolOrchestrator;
 
   constructor(systemContext: string, contextWindow: number) {
     this.systemContext = `SystemContext: ${systemContext}.`;
     this.contextWindow = contextWindow - this.systemContext.length;
-    this.movieService = new MovieService();
     this.dbQueryOrchestrator = new LLMToolOrchestrator('An orchestrator that orchestrates the steps to query the movie database to answer the user query');
     this.dbQueryOrchestrator.addTool('movie_db_vectorizer', LLMClient.generateVector, 'Vectorize the user query so that it can be searched against the vector of the movie\'s plot');
-    this.dbQueryOrchestrator.addTool('movie_db_searcher', this.movieService.findMovieByPlotVector.bind(this.movieService), 'Search the movie database using the vectorized user query to find relevant movies');
+    this.dbQueryOrchestrator.addTool('movie_db_searcher', MovieService.findMovieByPlotVector, 'Search the movie database using the vectorized user query to find relevant movies');
     logger.info(`ChatService initialized with system context: ${this.systemContext}`);
   }
 

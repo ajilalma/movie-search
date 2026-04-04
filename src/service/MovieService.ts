@@ -14,7 +14,7 @@ interface MovieDocument {
 }
 
 class MovieService {
-  async findMovieByPlotVector(plotVector: number[], maxMoviesToReturn: number): Promise<MovieDocument[]> {
+  static async findMovieByPlotVector(plotVector: number[], maxMoviesToReturn: number): Promise<MovieDocument[]> {
     logger.info(`Finding movies by plot vector: ${plotVector}`);
     const pipeline = [
       {

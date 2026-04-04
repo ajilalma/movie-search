@@ -1,3 +1,4 @@
+import { log } from 'console';
 import { logger } from '../logger';
 import LLMClient from './LLMClient';
 
@@ -5,7 +6,7 @@ export interface LLMTool {
     id: string;
     whenToUseIt: string;
     toolFunction: Function;
-    toolFunctionDefinition: string;
+    toolSignature: string;
     parameters?: FunctionParameter[];
 }
 
@@ -35,15 +36,17 @@ export class LLMToolOrchestrator {
     constructor(orchestratorRole: string) {
         this.agents = [];
         this.orchestratorRole = orchestratorRole;
+        logger.info(`LLMToolOrchestrator initialized with role: ${orchestratorRole}`);
     }
 
     public addTool(id: string, toolFunction: Function, whenToUseIt: string): void {
         const tool: LLMTool = {
             id, toolFunction, whenToUseIt,
-            toolFunctionDefinition: toolFunction.toString(),
+            toolSignature: toolFunction.toString(),
             parameters: this.generateParamList(toolFunction)
         };
         this.agents.push(tool);
+        logger.info(`Tool added: ${JSON.stringify({ id, whenToUseIt, parameters: tool.parameters })}`);
     }
 
     public async handleUserRequest(userInput: string): Promise<string> {
@@ -128,7 +131,7 @@ export class LLMToolOrchestrator {
                 const params = (t.parameters || [])
                     .map((p) => `${p.name}${p.required ? '' : '?'}: ${p.type}`)
                     .join(', ');
-                return `- id: "${t.id}", whenToUseIt: "${t.whenToUseIt}", parameters: [${params}]`;
+                return `- id: "${t.id}", toolSignature: "${t.toolSignature}", parameters: [${params}], whenToUseIt: "${t.whenToUseIt}"`;
             })
             .join('\n');
         logger.info(`Generated tools description for LLM: ${toolsDescription}`);
