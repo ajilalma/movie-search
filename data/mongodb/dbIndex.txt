@@ -1,0 +1,14 @@
+db.movies.createSearchIndex(
+  "vectorPlotIndex",
+  "vectorSearch",
+  {
+     "fields": [
+        {
+           "type": "vector",
+           "path": "plotembedding",
+           "numDimensions": 4096,
+           "similarity": "cosine"
+        }
+     ]
+  }
+);

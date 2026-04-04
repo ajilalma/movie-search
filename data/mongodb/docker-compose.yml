@@ -1,6 +1,6 @@
 services:
   mongodb:
-    image: mongodb/mongodb-community-server:latest
+    image: mongodb/mongodb-atlas-local
     container_name: mongodb_local
     ports:
       - "27017:27017"
