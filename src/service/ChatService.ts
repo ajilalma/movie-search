@@ -57,20 +57,47 @@ class ChatService {
   }
 
   private async processInputAndGetResponse(input: string): Promise<string> {
-    const vectorSearchQuery = `${this.systemContext}\n${this.chatSoFar}\nUser: ${input}\n`;
+    const originalQuery = [
+      `${this.systemContext}`,
+      `${this.chatSoFar}`,
+      `User: ${input}`
+    ].join('\n');
     logger.info(`Processing user input. Handing over the query to the dbQueryOrchestrator.`);
-    const additionalContextToAnswer = await this.dbQueryOrchestrator.handleUserRequest(vectorSearchQuery);
+    const additionalContextToAnswer = await this.dbQueryOrchestrator.handleUserRequest(originalQuery);
     logger.info(`Received additional context from dbQueryOrchestrator: ${additionalContextToAnswer}`);
-    const enhancedQuery = `${vectorSearchQuery}\n(use the following context to answer the latest query: ${additionalContextToAnswer})\nSystem: `;
-    const response = await LLMClient.generateText(enhancedQuery);
+    const augmentedQuery = [
+      originalQuery,
+      `Additional context from database search: ${additionalContextToAnswer}`,
+      `System:`
+    ].join('\n');
+    const response = await LLMClient.generateText(augmentedQuery);
     return response;
   }
 
   private async addChatToHistory(user: string, input: string): Promise<void> {
     this.chatSoFar += `${user}: ${input}\n`;
     if (this.chatSoFar.length > this.contextWindow) {
-      this.chatSoFar = this.chatSoFar.slice(this.chatSoFar.length - this.contextWindow);
+      const compacted = await this.compactChatHistory(this.chatSoFar);
+      logger.info(`Compact chat history: ${this.chatSoFar}`);
+      this.chatSoFar = compacted;
+      if (this.chatSoFar.length > this.contextWindow) {
+        logger.info(`Compacted chat history is still too long. Trimming the oldest messages.`);
+        this.chatSoFar = this.chatSoFar.slice(this.chatSoFar.length - this.contextWindow);
+        logger.info(`Trimmed chat history: ${this.chatSoFar}`);
+      }
     }
+  }
+
+  private async compactChatHistory(chatHistory: string): Promise<string> {
+    const prompt = [
+      `${this.systemContext}`,
+      `The following is the chat history between the user and the system:`,
+      `${this.chatSoFar}`,
+      `Please compact the above chat history while retaining the important information that might be relevant for future queries.`,
+      `Compact it in a way that it takes less characters but retains the important information and the context of the conversation.`,
+      `Compacted chat history:`
+    ].join('\n');
+    return await LLMClient.generateText(prompt);
   }
 }
 

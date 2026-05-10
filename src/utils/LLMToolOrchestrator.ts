@@ -21,12 +21,15 @@ interface ToolCallStrategy {
     steps: Array<string>;
 }
 
+interface ToolCallSteps {
+    actionableSteps: Array<ToolCallStrategyStep>;
+}
+
 interface ToolCallStrategyStep {
     step: number;
     action: string;
     toolId?: string;
     args?: Record<string, any>;
-    inputForNextStep?: string;
 }
 
 export class LLMToolOrchestrator {
@@ -42,7 +45,7 @@ export class LLMToolOrchestrator {
     public addTool(id: string, toolFunction: Function, whenToUseIt: string): void {
         const tool: LLMTool = {
             id, toolFunction, whenToUseIt,
-            toolSignature: toolFunction.toString(),
+            toolSignature: toolFunction.toString().split('{')[0].trim(), // Get the function signature (up to the opening brace)
             parameters: this.generateParamList(toolFunction)
         };
         this.agents.push(tool);
@@ -52,6 +55,53 @@ export class LLMToolOrchestrator {
     public async handleUserRequest(userInput: string): Promise<string> {
         // Build a human-readable description of available tools
         const toolsDescription = this.generateToolDescription();
+        const strategyJson = await this.prepareStrategy(toolsDescription, userInput);
+        logger.info(`Received tool call strategy from LLM ${JSON.stringify(strategyJson)}`);
+        if (strategyJson.numberOfSteps <= 0 || !strategyJson.steps || strategyJson.steps.length === 0) {
+            logger.info(`No actionable items found in the strategy.`);
+            return ""
+        }
+
+        const toolCallsJson = await this.prepareSteps(toolsDescription, strategyJson);
+        if (toolCallsJson.actionableSteps.length === 0) {
+            logger.info(`No actionable items found in the tool calls.`);
+            return ""
+        }
+        const stepResults: Record<string, any> = {};
+        let lastResult = "";
+        for (let step = 0; step < toolCallsJson.actionableSteps.length; step++) {
+            lastResult = await this.takeActionOnSolutionStep(toolCallsJson.actionableSteps[step], stepResults);
+            stepResults[`outputOfStep${step}`] = lastResult;
+        }
+
+        return lastResult;
+    }
+
+    private async prepareSteps(toolsDescription: string, strategyJson: ToolCallStrategy) {
+        let solutionPrompt = [
+            "You are an assistant that provides solutions based on the user's request and the available tools.",
+            "Available tools:",
+            toolsDescription,
+            "",
+            `Proposed solution steps: ${JSON.stringify(strategyJson.steps)}`,
+            "",
+            "Generate an actionable JSON as follows for the proposed solution steps one at a time. As soon as one step is complete, its result will be added to this prompt and we will go forward to the next step in a loop.",
+            `{
+                "actionableSteps":[
+                    {"step": 0, "action":"call_tool", "toolId":"<tool id>", "args": { "<paramName1>": <value>, ... }}] },
+                    {"step": 1, "action":"call_tool", "toolId":"<tool id>", "args": { "<paramName1>": <outputOfStep0>, ... }},
+                    {"step": 2, "action":"call_tool", "toolId":"<tool id>", "args": { "<paramName1>": <outputOfStep0>, "<paramName2>": <outputOfStep1>, "<paramName3>": <value>, ... }},
+                ]
+            }`,
+            "",
+            "Return EXACTLY ONE valid JSON. Do not return any extra text.",
+        ].join('\n');
+        const toolCalls = await LLMClient.generateText(solutionPrompt);
+        const toolCallsJson = this.extractFirstJson<ToolCallSteps>(toolCalls);
+        return toolCallsJson;
+    }
+
+    private async prepareStrategy(toolsDescription: string, userInput: string) {
         let strategyPrompt = [
             `Your role: ${this.orchestratorRole}`,
             "You will use the available tools and prepare a strategy for fulfilling the user's request.",
@@ -66,38 +116,7 @@ export class LLMToolOrchestrator {
         ].join('\n');
         const strategy = await LLMClient.generateText(strategyPrompt);
         const strategyJson = this.extractFirstJson<ToolCallStrategy>(strategy);
-        logger.info(`Received tool call strategy from LLM ${JSON.stringify(strategyJson)}`);
-        if (strategyJson.numberOfSteps <= 0 || !strategyJson.steps || strategyJson.steps.length === 0) {
-            logger.info(`No actionable items found in the strategy.`);
-            return ""
-        }
-
-        let solutionPrompt = [
-            "You are an assistant that provides solutions based on the user's request and the available tools.",
-            "Available tools:",
-            toolsDescription,
-            "",
-            `User request: ${userInput}`,
-            "",
-            `Proposed solution steps: ${JSON.stringify(strategyJson.steps)}`,
-            "",
-            "Generate an actionable JSON as follows for the proposed solution steps one at a time. As soon as one step is complete, its result will be added to this prompt and we will go forward to the next step in a loop.",
-            '1) {"step": <step number>, "action":"call_tool", "toolId":"<tool id>", "args": { "<paramName>": <value>, ... }}',
-            '2) {"step": <step number>, "action":"move_to_next_step", "inputForNextStep":"<input for next step>"}',
-            "",
-            "Return EXACTLY ONE valid JSON. Do not return any extra text.",
-        ].join('\n');
-        let stepResult: any;
-        for (let step = 1; step <= strategyJson.numberOfSteps; step++) {
-            solutionPrompt += `Actionable JSON for Step ${step}: `;
-            const stepSolution = await LLMClient.generateText(solutionPrompt);
-            const stepDecision = this.extractFirstJson<ToolCallStrategyStep>(stepSolution);
-            logger.info(`Received solution for step ${step} from LLM ${JSON.stringify(stepDecision)}`);
-            stepResult = await this.takeActionOnSolutionStep(stepDecision);
-            solutionPrompt += `\nResult of Step ${step}: ${JSON.stringify(stepResult)}`;
-        }
-
-        return JSON.stringify(stepResult);
+        return strategyJson;
     }
 
     private generateParamList(
@@ -149,7 +168,7 @@ export class LLMToolOrchestrator {
         }
     }
 
-    private async takeActionOnSolutionStep(step: ToolCallStrategyStep): Promise<any> {
+    private async takeActionOnSolutionStep(step: ToolCallStrategyStep, stepResult: Record<string, any>): Promise<any> {
         logger.info(`Taking action for step ${step.step} with action ${step.action}`);
         if (step.action === 'call_tool' && step.toolId) {
             const tool = this.agents.find((a) => a.id === step.toolId);
@@ -158,22 +177,40 @@ export class LLMToolOrchestrator {
                 logger.error(message);
                 return message;
             }
+            const argExtractPrompt = [
+                `You are an assistant that extracts and formats arguments for tool calls.`,
+                ``,
+                `A JSON object with required arguments are provided to you`,
+                `  Required arguments: ${JSON.stringify(step.args)}`,
+                ``,
+                `1. If the required arguments has the values directly provided in the "Required arguments", then use those values.`,
+                `2. If the required arguments needs to be filled with the output of previous steps, then MUST set the value of the parameter as outputOfStepX where X is the step number from the previous steps' results. Eg: "outputOfStep0", "outputOfStep1", etc.`,
+                ``,
+                `Extract and format the arguments as a JSON object with key-value pairs matching the required argument names and values.`,
+                `Return EXACTLY ONE valid JSON object with the extracted arguments. Do not return any extra text.`
+            ].join('\n');
             try {
-                const argsArray = tool.parameters?.map((p) => step.args ? step.args[p.name] : undefined) || [];
+                const extractedArgsStr = await LLMClient.generateText(argExtractPrompt);
+                const extractedArgs = this.extractFirstJson<Record<string, any>>(extractedArgsStr);
+                // Enrich the extracted arguments with the results from previous steps if needed
+                Object.keys(extractedArgs).forEach((k) => {
+                    const value = extractedArgs[k];
+                    if (typeof value === 'string' && value.startsWith('outputOfStep')) {
+                        const stepKey = value;
+                        extractedArgs[k] = stepResult[stepKey];
+                    }
+                });
+                const argsArray = tool.parameters?.map((p) => extractedArgs[p.name]) || [];
                 logger.info(`Calling tool ${tool.id} for step ${step.step} with args ${JSON.stringify(argsArray)}`);
                 const rawResult = await Promise.resolve(tool.toolFunction.apply(null, argsArray));
                 let message = `Result of step ${step.step}: ${JSON.stringify(rawResult)}`;
                 logger.info(message);
-                return message;
+                return rawResult;
             } catch (err) {
                 let message = `Error executing tool ${tool.id} for step ${step.step}: ${(err as Error).message || err}`;
                 logger.error(message);
                 return message;
             }
-        } else if (step.action === 'move_to_next_step') {
-            let message = `Moving to next step after step ${step.step}`;
-            logger.info(message);
-            return `Input for next step after step ${step.step}: ${step.inputForNextStep}`;
         } else {
             let message = `Unrecognized action "${step.action}" for step ${step.step}`;
             logger.error(message);

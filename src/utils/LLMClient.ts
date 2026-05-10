@@ -40,7 +40,7 @@ class LLMClient {
         stream: false
       },
       responseType: 'json',
-      timeout: { request: 60000 } // Set a reasonable timeout for generation
+      timeout: { request: 60000 * 10 } // Set a reasonable timeout for generation
     });
     const body = resp.body as { response: string, done: boolean };
     logger.info(`Generated text for prompt that ends with: ${prompt ? prompt.slice(-30) : ''}: ${JSON.stringify(body.response)}`);

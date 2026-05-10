@@ -25,19 +25,20 @@ class MovieService {
           numCandidates: maxMoviesToReturn * 10,
           limit: maxMoviesToReturn,
         },
+      }, {
         $project: {
-            _id: 0,
-            plot: 1,
-            genres: 1,
-            cast: 1,
-            title: 1,
-            languages: 1,
-            directors: 1,
-            writers: 1,
-            awards: 1,
-            type: 1
+          _id: 0,
+          plot: 1,
+          genres: 1,
+          cast: 1,
+          title: 1,
+          languages: 1,
+          directors: 1,
+          writers: 1,
+          awards: 1,
+          type: 1
         }
-      },
+      }
     ];
 
     const db = DBClient.getDB();
