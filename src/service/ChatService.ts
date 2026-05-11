@@ -13,7 +13,12 @@ class ChatService {
   constructor(systemContext: string, contextWindow: number) {
     this.systemContext = `SystemContext: ${systemContext}.`;
     this.contextWindow = contextWindow - this.systemContext.length;
-    this.dbQueryOrchestrator = new LLMToolOrchestrator('An orchestrator that orchestrates the steps to query the movie database to answer the user query');
+    const orchestratorRole = [
+      `An orchestrator that decides whether to call the DB and calls it to get the movie details depending on the user query`,
+      `Do not assume any knowledge. The orchestrator always call the DB if the user query needs information that is not present in chat history.`,
+      `However, do not call the db if the user is not about movies.`
+    ].join('\n');
+    this.dbQueryOrchestrator = new LLMToolOrchestrator(orchestratorRole);
     this.dbQueryOrchestrator.addTool('movie_db_vectorizer', LLMClient.generateVector, 'Vectorize the user query so that it can be searched against the vector of the movie\'s plot');
     this.dbQueryOrchestrator.addTool('movie_db_searcher', MovieService.findMovieByPlotVector, 'Search the movie database using the vectorized user query to find relevant movies');
     logger.info(`ChatService initialized with system context: ${this.systemContext}`);
@@ -64,10 +69,10 @@ class ChatService {
     ].join('\n');
     logger.info(`Processing user input. Handing over the query to the dbQueryOrchestrator.`);
     const additionalContextToAnswer = await this.dbQueryOrchestrator.handleUserRequest(originalQuery);
-    logger.info(`Received additional context from dbQueryOrchestrator: ${additionalContextToAnswer}`);
+    logger.info(`Received additional context from dbQueryOrchestrator: ${JSON.stringify(additionalContextToAnswer)}`);
     const augmentedQuery = [
       originalQuery,
-      `Additional context from database search: ${additionalContextToAnswer}`,
+      `Additional context from database search: ${JSON.stringify(additionalContextToAnswer)}`,
       `System:`
     ].join('\n');
     const response = await LLMClient.generateText(augmentedQuery);

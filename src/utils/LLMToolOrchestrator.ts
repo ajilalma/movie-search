@@ -95,6 +95,7 @@ export class LLMToolOrchestrator {
             }`,
             "",
             "Return EXACTLY ONE valid JSON. Do not return any extra text.",
+            "System:"
         ].join('\n');
         const toolCalls = await LLMClient.generateText(solutionPrompt);
         const toolCallsJson = this.extractFirstJson<ToolCallSteps>(toolCalls);
@@ -108,11 +109,12 @@ export class LLMToolOrchestrator {
             "Available tools:",
             toolsDescription,
             "",
-            "Given the user's request below, respond with a single JSON object with one of the following actionable structure:",
+            "Given the chat history below, respond with a single JSON object with one of the following actionable structure:",
             '{numberOfSteps: <number>, steps: [<step1>, <step2>, ...]}',
             "",
             "Only return valid JSON. Do not return any extra text.",
-            `User request: ${userInput}`
+            `Chat history: ${userInput}`,
+            `System:`
         ].join('\n');
         const strategy = await LLMClient.generateText(strategyPrompt);
         const strategyJson = this.extractFirstJson<ToolCallStrategy>(strategy);
